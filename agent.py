@@ -142,7 +142,7 @@ class NVCloudAgent:
             threading.Thread(target=self._loop, args=(self.metrics,   300,   "metrics"),   daemon=True),
             threading.Thread(target=self._loop, args=(self.inventory, 86400, "inventory"), daemon=True),
             threading.Thread(target=self._loop, args=(self.commands,  30,    "commands"),  daemon=True),
-            threading.Thread(target=self._loop, args=(self.shield,    1800,  "shield"),    daemon=True),
+            threading.Thread(target=self._loop, args=(self.shield,    10,  "shield"),    daemon=True),
         ]
         for t in threads:
             t.start()
