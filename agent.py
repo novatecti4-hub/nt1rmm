@@ -1,5 +1,26 @@
 #!/usr/bin/env python3
-import time, threading, signal, sys, logging
+import time, threading, signal, sys, logging, os, platform
+from pathlib import Path
+
+# Definir pasta de log com permissão de escrita
+if platform.system() == "Windows":
+    LOG_DIR = Path(r"C:\ProgramData\NVCloud")
+else:
+    LOG_DIR = Path("/var/log/nvcloud")
+
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+LOG_FILE = LOG_DIR / "nvcloud-agent.log"
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler(str(LOG_FILE), encoding="utf-8")
+    ]
+)
+log = logging.getLogger("agent")
+
 from config import Config
 from utils.api import ApiClient
 from modules.heartbeat import HeartbeatModule
@@ -8,16 +29,6 @@ from modules.inventory import InventoryModule
 from modules.commands import CommandsModule
 from modules.ailocal import LocalAIAnalyzer
 from modules.shield import ShieldModule
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("nvcloud-agent.log", encoding="utf-8")
-    ]
-)
-log = logging.getLogger("agent")
 
 class NVCloudAgent:
     def __init__(self):
@@ -55,7 +66,8 @@ class NVCloudAgent:
             t.start()
 
         log.info(f"Agente iniciado — {len(threads)} módulos ativos.")
-        self.inventory.run()  # inventário imediato no primeiro boot
+        log.info(f"Log em: {LOG_FILE}")
+        self.inventory.run()
 
         while self.running:
             time.sleep(1)
