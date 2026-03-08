@@ -10,6 +10,8 @@ class Config:
         self.token = data["token"]
         self.supabase_url = data["supabase_url"]
         self.app_url = data.get("app_url", "https://app.nvcloud.com.br")
+        self.rustdesk_config = data.get("rustdesk_config", "")
+        self.rustdesk_senha = data.get("rustdesk_senha", "")
 
     @staticmethod
     def config_path() -> Path:
