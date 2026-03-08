@@ -40,8 +40,8 @@ class ShieldModule:
             log.error(f"Shield erro: {e}", exc_info=True)
 
     def _notificar(self, c: Campanha):
-        url   = f"{self.app_url}/shield/{c.id}"
-        icone = "⚠️" if c.nivel_urgencia == "critico" else "🔒"
+        url    = f"{self.app_url}/shield/{c.id}"
+        icone  = "⚠️" if c.nivel_urgencia == "critico" else "🔒"
         titulo = f"{icone} Aviso de Segurança — NVCloud"
         corpo  = c.titulo
 
@@ -53,41 +53,46 @@ class ShieldModule:
         log.info(f"Notificação enviada: {c.titulo}")
 
     # ------------------------------------------------------------------
-    # Windows — winotify (sem PowerShell, clique abre o link)
+    # Windows — Toast nativo via PowerShell oculto
+    # Funciona como serviço, sem abrir browser, clique abre o link
     # ------------------------------------------------------------------
     def _notificar_windows(self, titulo: str, corpo: str, url: str):
+        script = f"""
+[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
+[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
+
+$template = @"
+<toast launch="{url}">
+  <visual>
+    <binding template="ToastGeneric">
+      <text>{titulo}</text>
+      <text>{corpo}</text>
+    </binding>
+  </visual>
+  <actions>
+    <action content="Ver Quiz" arguments="{url}" activationType="protocol"/>
+  </actions>
+</toast>
+"@
+
+$xml = New-Object Windows.Data.Xml.Dom.XmlDocument
+$xml.LoadXml($template)
+$toast = New-Object Windows.UI.Notifications.ToastNotification $xml
+[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("NVCloud Agent").Show($toast)
+"""
         try:
-            from winotify import Notification, audio
-
-            toast = Notification(
-                app_id="NVCloud Agent",
-                title=titulo,
-                msg=corpo,
-                duration="long",   # fica 25s na tela
-                launch=url         # clique no corpo abre o link
-            )
-            toast.add_actions(
-                label="📋 Ver Quiz",
-                launch=url
-            )
-            toast.set_audio(audio.Default, loop=False)
-            toast.show()
-
-        except ImportError:
-            # Fallback se winotify não estiver disponível
-            log.warning("winotify não encontrado — usando fallback PowerShell")
-            self._notificar_windows_fallback(titulo, corpo, url)
+            ps1 = Path(r"C:\ProgramData\NVCloud\notificacao.ps1")
+            ps1.write_text(script, encoding="utf-8")
+            subprocess.Popen([
+                "powershell",
+                "-WindowStyle", "Hidden",
+                "-NonInteractive",
+                "-ExecutionPolicy", "Bypass",
+                "-File", str(ps1)
+            ])
+            log.info(f"Toast enviado: {titulo}")
         except Exception as e:
-            log.error(f"Notificação Windows falhou: {e}")
-            self._notificar_windows_fallback(titulo, corpo, url)
-
-    def _notificar_windows_fallback(self, titulo: str, corpo: str, url: str):
-        """Abre o link direto se a notificação falhar"""
-        try:
-            import webbrowser
-            webbrowser.open(url)
-        except Exception:
-            pass
+            log.error(f"Toast falhou: {e}")
 
     # ------------------------------------------------------------------
     # Linux
