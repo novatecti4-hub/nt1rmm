@@ -46,14 +46,48 @@ def _instalar_servico():
         "Agente de monitoramento NVCloud RMM"
     ])
     subprocess.run(["sc", "start", "NVCloudAgent"])
-    print("NVCloud Agent instalado e iniciado como servico!")
+    _instalar_tray_startup()
+    print("NVCloud Agent instalado, servico iniciado e tray registrado!")
 
 
 def _desinstalar_servico():
     import subprocess
     subprocess.run(["sc", "stop", "NVCloudAgent"], capture_output=True)
     subprocess.run(["sc", "delete", "NVCloudAgent"])
+    _remover_tray_startup()
     print("NVCloud Agent removido!")
+
+
+def _instalar_tray_startup():
+    import os, winreg
+    exe_path = os.path.abspath(sys.argv[0])
+    try:
+        key = winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
+            0, winreg.KEY_SET_VALUE
+        )
+        winreg.SetValueEx(key, "NVCloudAgentTray", 0, winreg.REG_SZ,
+                          f'"{exe_path}" --tray')
+        winreg.CloseKey(key)
+        log.info("Tray registrado no startup do Windows")
+    except Exception as e:
+        log.error(f"Erro ao registrar tray startup: {e}")
+
+
+def _remover_tray_startup():
+    import winreg
+    try:
+        key = winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
+            0, winreg.KEY_SET_VALUE
+        )
+        winreg.DeleteValue(key, "NVCloudAgentTray")
+        winreg.CloseKey(key)
+        log.info("Tray removido do startup")
+    except Exception:
+        pass
 
 
 class NVCloudAgent:
@@ -111,7 +145,22 @@ class NVCloudAgent:
 if __name__ == "__main__":
     if "--install" in sys.argv:
         _instalar_servico()
+
     elif "--uninstall" in sys.argv:
         _desinstalar_servico()
+
+    elif "--tray" in sys.argv:
+        # Só o ícone na bandeja — iniciado pelo startup do Windows após login
+        cfg = Config()
+        class FakeAgent:
+            pass
+        fa = FakeAgent()
+        fa.cfg = cfg
+        fa.stop = lambda: sys.exit(0)
+        tray = TrayApp(fa)
+        tray.iniciar()
+        while True:
+            time.sleep(1)
+
     else:
         NVCloudAgent().start()
