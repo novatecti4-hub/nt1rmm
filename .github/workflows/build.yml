@@ -1,0 +1,48 @@
+name: Build NVCloud Agent
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - run: pyinstaller --onefile --noconsole --name NVCloudAgent agent.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-exe
+          path: dist/NVCloudAgent.exe
+
+  build-linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - run: pyinstaller --onefile --name nvcloud-agent agent.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-bin
+          path: dist/nvcloud-agent
+
+  release:
+    needs: [build-windows, build-linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+      - uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            windows-exe/NVCloudAgent.exe
+            linux-bin/nvcloud-agent
