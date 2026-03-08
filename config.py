@@ -1,20 +1,14 @@
-import json, platform
+import os
 from pathlib import Path
 
 class Config:
     def __init__(self):
-        path = self.config_path()
-        if not path.exists():
-            raise FileNotFoundError(f"config.json não encontrado em {path}")
-        data = json.loads(path.read_text())
-        self.token = data["token"]
-        self.supabase_url = data["supabase_url"]
-        self.app_url = data.get("app_url", "https://app.nvcloud.com.br")
-        self.rustdesk_config = data.get("rustdesk_config", "")
-        self.rustdesk_senha = data.get("rustdesk_senha", "")
+        # Supabase
+        self.supabase_url = os.getenv("SUPABASE_URL", "https://SEU_PROJETO.supabase.co")
+        self.token        = os.getenv("NVCLOUD_TOKEN", "SEU_TOKEN")
+        self.app_url      = os.getenv("APP_URL", "https://app.nvcloud.com.br")
 
-    @staticmethod
-    def config_path() -> Path:
-        if platform.system() == "Windows":
-            return Path(r"C:\ProgramData\NVCloud\config.json")
-        return Path("/etc/nvcloud/config.json")
+        # RustDesk
+        self.rustdesk_host  = os.getenv("RUSTDESK_HOST", "104.234.186.92")
+        self.rustdesk_key   = os.getenv("RUSTDESK_KEY",  "8oNaKiU7X8mYDwr9XU4T4tRH4KYgVLLD6rJxMr4n8bM=")
+        self.rustdesk_senha = os.getenv("RUSTDESK_SENHA", "Novatecti@4321")
