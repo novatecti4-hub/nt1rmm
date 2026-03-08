@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-import time, threading, signal, sys, logging, os, platform
+import time, threading, signal, sys, logging, platform
 from pathlib import Path
 
-# Definir pasta de log com permissão de escrita
 if platform.system() == "Windows":
     LOG_DIR = Path(r"C:\ProgramData\NVCloud")
 else:
@@ -29,6 +28,8 @@ from modules.inventory import InventoryModule
 from modules.commands import CommandsModule
 from modules.ailocal import LocalAIAnalyzer
 from modules.shield import ShieldModule
+from modules.rustdesk import RustDeskModule
+from tray import TrayApp
 
 class NVCloudAgent:
     def __init__(self):
@@ -36,11 +37,13 @@ class NVCloudAgent:
         self.api = ApiClient(self.cfg.supabase_url, self.cfg.token)
         self.running = True
         self.ai = LocalAIAnalyzer()
-        self.heartbeat = HeartbeatModule(self.api)
+        self.rustdesk = RustDeskModule(self.api, self.cfg.rustdesk_config, self.cfg.rustdesk_senha)
+        self.heartbeat = HeartbeatModule(self.api, self.rustdesk)
         self.metrics = MetricsModule(self.api, self.ai)
         self.inventory = InventoryModule(self.api)
         self.commands = CommandsModule(self.api)
         self.shield = ShieldModule(self.api, self.cfg.token, self.cfg.app_url)
+        self.tray = TrayApp(self)
 
     def _loop(self, mod, interval: int, name: str):
         while self.running:
@@ -54,6 +57,8 @@ class NVCloudAgent:
         log.info("NVCloud Agent iniciando...")
         signal.signal(signal.SIGTERM, lambda *_: self.stop())
         signal.signal(signal.SIGINT, lambda *_: self.stop())
+
+        self.tray.iniciar()
 
         threads = [
             threading.Thread(target=self._loop, args=(self.heartbeat, 60, "heartbeat"), daemon=True),
