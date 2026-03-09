@@ -24,6 +24,7 @@ jobs:
           pip install pywin32==306
           pip install pystray==0.19.5
           pip install Pillow==10.2.0
+          pip install winotify==1.1.0
           pip install pyinstaller==6.3.0
       - name: Compilar Windows
         run: |
@@ -32,10 +33,14 @@ jobs:
             --collect-all requests `
             --collect-all pystray `
             --collect-all PIL `
+            --hidden-import=winotify `
             --hidden-import=chardet `
             --hidden-import=charset_normalizer `
             --hidden-import=win32api `
             --hidden-import=win32con `
+            --hidden-import=win32ts `
+            --hidden-import=win32security `
+            --hidden-import=win32process `
             --hidden-import=win32service `
             --hidden-import=win32serviceutil `
             --hidden-import=pystray `
