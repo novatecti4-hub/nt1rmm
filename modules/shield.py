@@ -1,4 +1,4 @@
-import platform, subprocess, logging, time, threading, hashlib
+import platform, subprocess, logging, threading, hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -77,51 +77,52 @@ $toast = New-Object Windows.UI.Notifications.ToastNotification $xml
 [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("NVCloud Agent").Show($toast)
 """
         try:
+            import win32ts, win32security, win32process, win32con, win32api
+
             ps1 = Path(r"C:\ProgramData\NVCloud\notificacao.ps1")
             ps1.write_text(script, encoding="utf-8")
 
-            CREATE_NO_WINDOW = 0x08000000
-            task_name = f"NVCloudToast_{hashlib.md5(titulo.encode()).hexdigest()[:8]}"
+            # Pega a sessão ativa do console (usuário logado)
+            session_id = win32ts.WTSGetActiveConsoleSessionId()
+            if session_id == 0xFFFFFFFF:
+                log.warning("Nenhum usuário logado no console — toast não enviado")
+                return
 
-            # Cria task que roda na sessão do usuário logado
-            subprocess.Popen(
-                [
-                    "schtasks", "/Create", "/F",
-                    "/TN", task_name,
-                    "/TR", r'powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "C:\ProgramData\NVCloud\notificacao.ps1"',
-                    "/SC", "ONCE",
-                    "/ST", time.strftime("%H:%M"),
-                    "/RU", "INTERACTIVE",   # ← sessão do usuário logado
-                    "/RL", "LIMITED",
-                    "/DELAY", "0000:00"
-                ],
-                creationflags=CREATE_NO_WINDOW,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
+            # Token do usuário logado nessa sessão
+            user_token = win32ts.WTSQueryUserToken(session_id)
+
+            # Duplica o token para uso primário
+            dup_token = win32security.DuplicateTokenEx(
+                user_token,
+                win32con.TOKEN_ALL_ACCESS,
+                None,
+                win32security.SecurityIdentification,
+                win32security.TokenPrimary
             )
 
-            # Dispara imediatamente e limpa após 30s
-            def _run_and_cleanup():
-                time.sleep(1)
-                subprocess.Popen(
-                    ["schtasks", "/Run", "/TN", task_name],
-                    creationflags=CREATE_NO_WINDOW,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL
-                )
-                time.sleep(30)
-                subprocess.Popen(
-                    ["schtasks", "/Delete", "/TN", task_name, "/F"],
-                    creationflags=CREATE_NO_WINDOW,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL
-                )
+            cmd = f'powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{str(ps1)}"'
 
-            threading.Thread(target=_run_and_cleanup, daemon=True).start()
-            log.info(f"Toast agendado na sessão do usuário: {titulo}")
+            startup = win32process.STARTUPINFO()
+            startup.dwFlags    = win32con.STARTF_USESHOWWINDOW
+            startup.wShowWindow = win32con.SW_HIDE
 
+            # Cria o processo NA sessão do usuário — não como SYSTEM
+            win32process.CreateProcessAsUser(
+                dup_token, None, cmd,
+                None, None, False,
+                win32con.CREATE_NO_WINDOW,
+                None, None, startup
+            )
+
+            win32api.CloseHandle(user_token)
+            win32api.CloseHandle(dup_token)
+
+            log.info(f"Toast enviado na sessão do usuário (session {session_id}): {titulo}")
+
+        except ImportError:
+            log.error("pywin32 não instalado — toast não enviado")
         except Exception as e:
-            log.error(f"Toast falhou: {e}")
+            log.error(f"Toast falhou: {e}", exc_info=True)
 
     def _notificar_linux(self, titulo: str, corpo: str):
         try:
