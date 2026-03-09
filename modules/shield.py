@@ -52,10 +52,6 @@ class ShieldModule:
 
         log.info(f"Notificação enviada: {c.titulo}")
 
-    # ------------------------------------------------------------------
-    # Windows — Toast nativo via PowerShell oculto
-    # Funciona como serviço, sem abrir browser, clique abre o link
-    # ------------------------------------------------------------------
     def _notificar_windows(self, titulo: str, corpo: str, url: str):
         script = f"""
 [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
@@ -83,20 +79,25 @@ $toast = New-Object Windows.UI.Notifications.ToastNotification $xml
         try:
             ps1 = Path(r"C:\ProgramData\NVCloud\notificacao.ps1")
             ps1.write_text(script, encoding="utf-8")
-            subprocess.Popen([
-                "powershell",
-                "-WindowStyle", "Hidden",
-                "-NonInteractive",
-                "-ExecutionPolicy", "Bypass",
-                "-File", str(ps1)
-            ])
+
+            CREATE_NO_WINDOW = 0x08000000  # ← sem janela azul
+
+            subprocess.Popen(
+                [
+                    "powershell",
+                    "-WindowStyle", "Hidden",
+                    "-NonInteractive",
+                    "-ExecutionPolicy", "Bypass",
+                    "-File", str(ps1)
+                ],
+                creationflags=CREATE_NO_WINDOW,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
             log.info(f"Toast enviado: {titulo}")
         except Exception as e:
             log.error(f"Toast falhou: {e}")
 
-    # ------------------------------------------------------------------
-    # Linux
-    # ------------------------------------------------------------------
     def _notificar_linux(self, titulo: str, corpo: str):
         try:
             subprocess.run(
