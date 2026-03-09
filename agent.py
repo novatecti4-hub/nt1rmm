@@ -74,6 +74,7 @@ def _instalar_tray_startup():
         winreg.SetValueEx(key, "NVCloudAgentTray", 0, winreg.REG_SZ,
                           f'"{exe_path}" --tray')
         winreg.CloseKey(key)
+        log.info("Tray registrado no startup")
     except Exception as e:
         log.error(f"Erro ao registrar tray startup: {e}")
 
@@ -102,15 +103,14 @@ class NVCloudAgent:
         self.running = True
         self.ai      = LocalAIAnalyzer()
 
-        # BUG #1 CORRIGIDO: CommandsModule não chama checkin — recebe jobs via heartbeat
+        # Ordem importa — commands criado antes do heartbeat
         self.commands  = CommandsModule(self.api)
         self.rustdesk  = RustDeskModule(self.api)
-        # BUG #2 CORRIGIDO: heartbeat recebe rustdesk + commands para repassar jobs
+        # CORRIGIDO: heartbeat recebe commands para repassar jobs sem segundo checkin
         self.heartbeat = HeartbeatModule(self.api, self.rustdesk, self.commands)
         self.metrics   = MetricsModule(self.api, self.ai)
-        # BUG #2 CORRIGIDO: inventory recebe agent_id
         self.inventory = InventoryModule(self.api, self.cfg.agent_id)
-        # BUG #3+#4 CORRIGIDO: shield recebe agent_id, intervalo 1800s
+        # CORRIGIDO: shield recebe agent_id explícito
         self.shield    = ShieldModule(self.api, self.cfg.token,
                                       self.cfg.app_url, self.cfg.agent_id)
         self.tray      = TrayApp(self)
@@ -139,7 +139,7 @@ class NVCloudAgent:
             threading.Thread(target=self._loop, args=(self.metrics,   300,   "metrics"),   daemon=True),
             threading.Thread(target=self._loop, args=(self.inventory, 86400, "inventory"), daemon=True),
             threading.Thread(target=self._loop, args=(self.commands,  30,    "commands"),  daemon=True),
-            # BUG #4 CORRIGIDO: era 10s — 1800s (30 min)
+            # CORRIGIDO: era 10s — agora 1800s (30 min)
             threading.Thread(target=self._loop, args=(self.shield,    1800,  "shield"),    daemon=True),
         ]
         for t in threads:
@@ -170,10 +170,10 @@ if __name__ == "__main__":
         cfg = Config()
         class FakeAgent:
             pass
-        fa = FakeAgent()
+        fa      = FakeAgent()
         fa.cfg  = cfg
         fa.stop = lambda: sys.exit(0)
-        tray = TrayApp(fa)
+        tray    = TrayApp(fa)
         try:
             tray.iniciar()
         except Exception as e:
