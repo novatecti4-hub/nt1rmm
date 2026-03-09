@@ -5,38 +5,42 @@ log = logging.getLogger("heartbeat")
 
 
 class HeartbeatModule:
-    def __init__(self, api, rustdesk):
+    def __init__(self, api, rustdesk, commands=None):  # CORRIGIDO: aceita commands
         self.api      = api
         self.rustdesk = rustdesk
+        self.commands = commands
 
     def run(self):
         payload = {
-            "hostname":    socket.gethostname(),
-            "ip":          self._ip(),
-            "os":          f"{platform.system()} {platform.release()}",
-            "os_versao":   platform.version(),
-            "arquitetura": platform.machine(),
-            "uptime_s":    self._uptime(),
-            "status":      "online",
-            "rustdesk_id": self.rustdesk.get_id(),
-            "cpu_uso":     psutil.cpu_percent(interval=1),
-            "ram_uso_pct": psutil.virtual_memory().percent,
-            "coletado_em": datetime.now(timezone.utc).isoformat(),
+            "hostname":       socket.gethostname(),
+            "ip_local":       self._ip(),               # CORRIGIDO: era "ip"
+            "os_tipo":        platform.system(),         # CORRIGIDO: era "os" + release concatenado
+            "os_versao":      platform.version(),
+            "os_arquitetura": platform.machine(),        # CORRIGIDO: era "arquitetura"
+            "agent_version":  "1.0.0",
+            "rustdesk_id":    self.rustdesk.get_id(),
         }
-        self.api.post("agent-checkin", payload)
+        resp = self.api.post("agent-checkin", payload)
+
+        # CORRIGIDO: repassa jobs para commands — sem chamar checkin de novo
+        if resp and self.commands:
+            jobs = resp.get("jobs", [])
+            if jobs:
+                self.commands.atualizar_jobs(jobs)
+
         log.info(
             f"Heartbeat OK — "
-            f"CPU: {payload['cpu_uso']}% | "
-            f"RAM: {payload['ram_uso_pct']}% | "
+            f"CPU: {psutil.cpu_percent(interval=0.1):.0f}% | "
+            f"RAM: {psutil.virtual_memory().percent:.0f}% | "
             f"RustDesk: {payload['rustdesk_id'] or 'não instalado'}"
         )
 
     def _ip(self) -> str:
         try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.connect(("8.8.8.8", 80))
-            ip = sock.getsockname()[0]
-            sock.close()
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
             return ip
         except Exception:
             try:
