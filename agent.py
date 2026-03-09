@@ -8,14 +8,13 @@ else:
     LOG_DIR = Path("/var/log/nvcloud")
 
 LOG_DIR.mkdir(parents=True, exist_ok=True)
-LOG_FILE = LOG_DIR / "nvcloud-agent.log"
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler(str(LOG_FILE), encoding="utf-8")
+        logging.FileHandler(str(LOG_DIR / "nvcloud-agent.log"), encoding="utf-8")
     ]
 )
 log = logging.getLogger("agent")
@@ -39,26 +38,22 @@ def _tem_interface() -> bool:
             return False
         import ctypes
         return ctypes.windll.user32.GetForegroundWindow() != 0
-    except:
+    except Exception:
         return False
 
 
 def _instalar_servico():
-    import subprocess, os
+    import subprocess
     exe_path = os.path.abspath(sys.argv[0])
-    subprocess.run([
-        "sc", "create", "NVCloudAgent",
-        "binPath=", f'"{exe_path}"',
-        "start=", "auto",
-        "DisplayName=", "NVCloud Agent"
-    ])
-    subprocess.run([
-        "sc", "description", "NVCloudAgent",
-        "Agente de monitoramento NVCloud RMM"
-    ])
+    subprocess.run(["sc", "create", "NVCloudAgent",
+                    "binPath=", f'"{exe_path}"',
+                    "start=", "auto",
+                    "DisplayName=", "NVCloud Agent"])
+    subprocess.run(["sc", "description", "NVCloudAgent",
+                    "Agente de monitoramento NVCloud RMM"])
     subprocess.run(["sc", "start", "NVCloudAgent"])
     _instalar_tray_startup()
-    print("NVCloud Agent instalado, servico iniciado e tray registrado!")
+    print("NVCloud Agent instalado e iniciado!")
 
 
 def _desinstalar_servico():
@@ -70,18 +65,15 @@ def _desinstalar_servico():
 
 
 def _instalar_tray_startup():
-    import winreg, os
+    import winreg
     exe_path = os.path.abspath(sys.argv[0])
     try:
-        key = winreg.OpenKey(
-            winreg.HKEY_CURRENT_USER,
-            r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
-            0, winreg.KEY_SET_VALUE
-        )
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                             r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
+                             0, winreg.KEY_SET_VALUE)
         winreg.SetValueEx(key, "NVCloudAgentTray", 0, winreg.REG_SZ,
                           f'"{exe_path}" --tray')
         winreg.CloseKey(key)
-        log.info("Tray registrado no startup do Windows")
     except Exception as e:
         log.error(f"Erro ao registrar tray startup: {e}")
 
@@ -89,41 +81,38 @@ def _instalar_tray_startup():
 def _remover_tray_startup():
     import winreg
     try:
-        key = winreg.OpenKey(
-            winreg.HKEY_CURRENT_USER,
-            r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
-            0, winreg.KEY_SET_VALUE
-        )
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                             r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
+                             0, winreg.KEY_SET_VALUE)
         winreg.DeleteValue(key, "NVCloudAgentTray")
         winreg.CloseKey(key)
-        log.info("Tray removido do startup")
     except Exception:
         pass
 
 
 class NVCloudAgent:
     def __init__(self):
-        # 1️⃣ Config primeiro
-        self.cfg      = Config()
+        self.cfg = Config()
 
-        # 2️⃣ agent_id ANTES de qualquer módulo
-        self.agent_id = self.cfg.agent_id
-        if not self.agent_id:
+        if not self.cfg.agent_id:
             log.error("agent_id não encontrado no config! Execute --install primeiro.")
             sys.exit(1)
 
-        # 3️⃣ API com agent_id
-        self.api      = ApiClient(self.cfg.supabase_url, self.cfg.token)
+        self.api     = ApiClient(self.cfg.supabase_url, self.cfg.token)
+        self.running = True
+        self.ai      = LocalAIAnalyzer()
 
-        # 4️⃣ Módulos — ordem importa
-        self.running   = True
-        self.ai        = LocalAIAnalyzer()
-        self.rustdesk  = RustDeskModule(self.api)
-        self.heartbeat = HeartbeatModule(self.api, self.rustdesk)
-        self.metrics   = MetricsModule(self.api, self.ai)
-        self.inventory = InventoryModule(self.api, self.agent_id)  # ✅ agent_id já existe
+        # BUG #1 CORRIGIDO: CommandsModule não chama checkin — recebe jobs via heartbeat
         self.commands  = CommandsModule(self.api)
-        self.shield    = ShieldModule(self.api, self.cfg.token, self.cfg.app_url)
+        self.rustdesk  = RustDeskModule(self.api)
+        # BUG #2 CORRIGIDO: heartbeat recebe rustdesk + commands para repassar jobs
+        self.heartbeat = HeartbeatModule(self.api, self.rustdesk, self.commands)
+        self.metrics   = MetricsModule(self.api, self.ai)
+        # BUG #2 CORRIGIDO: inventory recebe agent_id
+        self.inventory = InventoryModule(self.api, self.cfg.agent_id)
+        # BUG #3+#4 CORRIGIDO: shield recebe agent_id, intervalo 1800s
+        self.shield    = ShieldModule(self.api, self.cfg.token,
+                                      self.cfg.app_url, self.cfg.agent_id)
         self.tray      = TrayApp(self)
 
     def _loop(self, mod, interval: int, name: str):
@@ -135,14 +124,13 @@ class NVCloudAgent:
             time.sleep(interval)
 
     def start(self):
-        log.info("NVCloud Agent iniciando...")
+        log.info(f"NVCloud Agent iniciando — agent_id={self.cfg.agent_id}")
         signal.signal(signal.SIGTERM, lambda *_: self.stop())
         signal.signal(signal.SIGINT,  lambda *_: self.stop())
 
         if _tem_interface():
             try:
                 self.tray.iniciar()
-                log.info("Tray iniciado")
             except Exception as e:
                 log.warning(f"Tray não iniciado: {e}")
 
@@ -151,15 +139,14 @@ class NVCloudAgent:
             threading.Thread(target=self._loop, args=(self.metrics,   300,   "metrics"),   daemon=True),
             threading.Thread(target=self._loop, args=(self.inventory, 86400, "inventory"), daemon=True),
             threading.Thread(target=self._loop, args=(self.commands,  30,    "commands"),  daemon=True),
-            threading.Thread(target=self._loop, args=(self.shield,    10,    "shield"),    daemon=True),
+            # BUG #4 CORRIGIDO: era 10s — 1800s (30 min)
+            threading.Thread(target=self._loop, args=(self.shield,    1800,  "shield"),    daemon=True),
         ]
         for t in threads:
             t.start()
 
-        log.info(f"Agente iniciado — {len(threads)} módulos ativos.")
-        log.info(f"Log em: {LOG_FILE}")
+        log.info(f"Agente iniciado — {len(threads)} módulos ativos")
 
-        # Inventário imediato na primeira execução
         try:
             self.inventory.run()
         except Exception as e:
@@ -177,28 +164,21 @@ class NVCloudAgent:
 if __name__ == "__main__":
     if "--install" in sys.argv:
         _instalar_servico()
-
     elif "--uninstall" in sys.argv:
         _desinstalar_servico()
-
     elif "--tray" in sys.argv:
         cfg = Config()
-
         class FakeAgent:
             pass
-
-        fa      = FakeAgent()
+        fa = FakeAgent()
         fa.cfg  = cfg
         fa.stop = lambda: sys.exit(0)
-
         tray = TrayApp(fa)
         try:
             tray.iniciar()
         except Exception as e:
             log.error(f"Tray erro: {e}")
-
         while True:
             time.sleep(1)
-
     else:
         NVCloudAgent().start()
