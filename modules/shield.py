@@ -1,4 +1,4 @@
-import platform, subprocess, logging
+import platform, subprocess, logging, time, threading, hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -66,7 +66,7 @@ $template = @"
     </binding>
   </visual>
   <actions>
-    <action content="Ver Quiz" arguments="{url}" activationType="protocol"/>
+    <action content="Ver Campanha" arguments="{url}" activationType="protocol"/>
   </actions>
 </toast>
 "@
@@ -80,21 +80,46 @@ $toast = New-Object Windows.UI.Notifications.ToastNotification $xml
             ps1 = Path(r"C:\ProgramData\NVCloud\notificacao.ps1")
             ps1.write_text(script, encoding="utf-8")
 
-            CREATE_NO_WINDOW = 0x08000000  # ← sem janela azul
+            CREATE_NO_WINDOW = 0x08000000
+            task_name = f"NVCloudToast_{hashlib.md5(titulo.encode()).hexdigest()[:8]}"
 
+            # Cria task que roda na sessão do usuário logado
             subprocess.Popen(
                 [
-                    "powershell",
-                    "-WindowStyle", "Hidden",
-                    "-NonInteractive",
-                    "-ExecutionPolicy", "Bypass",
-                    "-File", str(ps1)
+                    "schtasks", "/Create", "/F",
+                    "/TN", task_name,
+                    "/TR", r'powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "C:\ProgramData\NVCloud\notificacao.ps1"',
+                    "/SC", "ONCE",
+                    "/ST", time.strftime("%H:%M"),
+                    "/RU", "INTERACTIVE",   # ← sessão do usuário logado
+                    "/RL", "LIMITED",
+                    "/DELAY", "0000:00"
                 ],
                 creationflags=CREATE_NO_WINDOW,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL
             )
-            log.info(f"Toast enviado: {titulo}")
+
+            # Dispara imediatamente e limpa após 30s
+            def _run_and_cleanup():
+                time.sleep(1)
+                subprocess.Popen(
+                    ["schtasks", "/Run", "/TN", task_name],
+                    creationflags=CREATE_NO_WINDOW,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+                time.sleep(30)
+                subprocess.Popen(
+                    ["schtasks", "/Delete", "/TN", task_name, "/F"],
+                    creationflags=CREATE_NO_WINDOW,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+
+            threading.Thread(target=_run_and_cleanup, daemon=True).start()
+            log.info(f"Toast agendado na sessão do usuário: {titulo}")
+
         except Exception as e:
             log.error(f"Toast falhou: {e}")
 
