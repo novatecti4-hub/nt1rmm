@@ -111,7 +111,7 @@ class NVCloudAgent:
         self.rustdesk  = RustDeskModule(self.api)
         self.heartbeat = HeartbeatModule(self.api, self.rustdesk)
         self.metrics   = MetricsModule(self.api, self.ai)
-        self.inventory = InventoryModule(self.api)
+        self.inventory = InventoryModule(self.api, self.agent_id)
         self.commands  = CommandsModule(self.api)
         self.shield    = ShieldModule(self.api, self.cfg.token, self.cfg.app_url)
         self.tray      = TrayApp(self)
