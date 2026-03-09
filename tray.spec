@@ -1,10 +1,17 @@
 # -*- mode: python ; coding: utf-8 -*-
+# CORRIGIDO: era 'tray.py' (arquivo inexistente) → 'nvcloud_tray.py'
 a = Analysis(
-    ['tray.py'],
+    ['nvcloud_tray.py'],
     pathex=[],
     binaries=[],
     datas=[],
-    hiddenimports=['pystray._win32', 'pystray._darwin', 'pystray._linux'],
+    hiddenimports=[
+        'pystray._win32',
+        'pystray._darwin',
+        'pystray._linux',
+        'winotify',              # ADICIONADO: necessário para toasts Windows
+        'PIL._tkinter_finder',
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

@@ -76,6 +76,7 @@ def mostrar_toast_windows(titulo: str, mensagem: str, url: str):
         toast.show()
         log.info(f"Toast exibido: {titulo}")
     except ImportError:
+        log.warning("winotify não encontrado — usando fallback PowerShell BalloonTip")
         # Fallback: PowerShell BalloonTip
         script = f"""
 Add-Type -AssemblyName System.Windows.Forms
@@ -105,27 +106,45 @@ def mostrar_toast_linux(titulo: str, mensagem: str):
         log.warning("notify-send não encontrado — instale libnotify-bin")
 
 # ── Loop de verificação Shield ────────────────────────────────────
-def shield_loop(api: Api, app_url: str, stop_event: threading.Event):
-    log.info("Shield loop iniciado (intervalo: 30 min)")
+# CORRIGIDO: recebe agent_id para enviar no POST
+def shield_loop(api: Api, app_url: str, stop_event: threading.Event, agent_id: str = ""):
+    log.info(f"Shield loop iniciado (intervalo: 30 min) — agent_id={agent_id or '(resolver via JWT)'}")
     while not stop_event.is_set():
         try:
-            resp = api.get("agent-shield-check")
+            # CORRIGIDO: usa POST com agent_id (era GET sem agent_id)
+            resp = api.post("agent-shield-check", {"agent_id": agent_id})
             pendentes = resp.get("pendentes", [])
+            # agent_id resolvido pelo servidor (mais confiável que o local)
+            resolved_id = resp.get("agent_id", agent_id)
+
             log.info(f"Shield: {len(pendentes)} campanha(s) pendente(s)")
             for c in pendentes:
-                cid    = c.get("id", "")
-                titulo = c.get("titulo", "Aviso de Segurança")
-                nivel  = c.get("nivel_urgencia", "normal")
-                icone  = "⚠️" if nivel == "critico" else "🔒"
-                titulo_notif = f"{icone} {titulo}"
-                url    = f"{app_url.rstrip('/')}/shield/{cid}"
+                cid          = c.get("id", "")
+                titulo       = c.get("titulo", "Aviso de Segurança")
+                nivel        = c.get("nivel_urgencia", "normal")
+                # Usa campos personalizados da Edge Function se disponíveis
+                notif_titulo = c.get("notificacao_titulo", "")
+                notif_texto  = c.get("notificacao_texto",  "")
+
+                if not notif_titulo:
+                    icone        = "⚠️" if nivel == "critico" else "🔒"
+                    notif_titulo = f"{icone} Aviso de Segurança — NVCloud"
+                if not notif_texto:
+                    notif_texto  = titulo
+
+                # CORRIGIDO: inclui agent= na URL para rastrear progresso do quiz
+                url = f"{app_url.rstrip('/')}/shield/{cid}?agent={resolved_id}"
 
                 if platform.system() == "Windows":
-                    mostrar_toast_windows(titulo_notif, "Clique para ver o aviso de segurança", url)
+                    mostrar_toast_windows(notif_titulo, notif_texto, url)
                 else:
-                    mostrar_toast_linux(titulo_notif, "Clique para ver o aviso de segurança")
+                    mostrar_toast_linux(notif_titulo, notif_texto)
 
-                api.post("agent-shield-entregue", {"campanha_id": cid})
+                # CORRIGIDO: envia agent_id no body (era só campanha_id)
+                api.post("agent-shield-entregue", {
+                    "campanha_id": cid,
+                    "agent_id":    resolved_id,
+                })
 
         except Exception as e:
             log.error(f"Erro no shield_loop: {e}", exc_info=True)
@@ -151,6 +170,7 @@ def build_menu(app_url: str, stop_event: threading.Event, icon_ref: list):
 
     def verificar_agora(_):
         log.info("Verificação manual do Shield solicitada")
+        # Sinaliza o stop_event para acordar o loop e re-verificar imediatamente
         stop_event.set()
         stop_event.clear()
 
@@ -171,17 +191,23 @@ def build_menu(app_url: str, stop_event: threading.Event, icon_ref: list):
 
 # ── Main ──────────────────────────────────────────────────────────
 def main():
-    cfg     = load_config()
-    token   = cfg["token"]
-    sup_url = cfg["supabase_url"]
-    app_url = cfg.get("app_url", "https://app.nvcloud.com.br")
+    cfg      = load_config()
+    token    = cfg["token"]
+    sup_url  = cfg["supabase_url"]
+    app_url  = cfg.get("app_url", "https://tech-guard-flow.lovable.app")
+    # CORRIGIDO: lê agent_id do config para passar ao shield_loop
+    agent_id = cfg.get("agent_id", "")
 
     api        = Api(sup_url, token)
     stop_event = threading.Event()
     icon_ref   = []
 
-    # Inicia loop Shield em background
-    t = threading.Thread(target=shield_loop, args=(api, app_url, stop_event), daemon=True)
+    # Inicia loop Shield em background — CORRIGIDO: passa agent_id
+    t = threading.Thread(
+        target=shield_loop,
+        args=(api, app_url, stop_event, agent_id),
+        daemon=True
+    )
     t.start()
 
     # Cria ícone do tray
