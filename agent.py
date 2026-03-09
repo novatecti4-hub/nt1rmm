@@ -33,7 +33,6 @@ from tray import TrayApp
 
 
 def _tem_interface() -> bool:
-    """False quando rodando como serviço Windows (sem desktop)"""
     try:
         session = os.environ.get("SESSIONNAME", "")
         if session in ("", "Services"):
@@ -104,14 +103,25 @@ def _remover_tray_startup():
 
 class NVCloudAgent:
     def __init__(self):
-        self.cfg       = Config()
-        self.api       = ApiClient(self.cfg.supabase_url, self.cfg.token)
+        # 1️⃣ Config primeiro
+        self.cfg      = Config()
+
+        # 2️⃣ agent_id ANTES de qualquer módulo
+        self.agent_id = self.cfg.agent_id
+        if not self.agent_id:
+            log.error("agent_id não encontrado no config! Execute --install primeiro.")
+            sys.exit(1)
+
+        # 3️⃣ API com agent_id
+        self.api      = ApiClient(self.cfg.supabase_url, self.cfg.token)
+
+        # 4️⃣ Módulos — ordem importa
         self.running   = True
         self.ai        = LocalAIAnalyzer()
         self.rustdesk  = RustDeskModule(self.api)
         self.heartbeat = HeartbeatModule(self.api, self.rustdesk)
         self.metrics   = MetricsModule(self.api, self.ai)
-        self.inventory = InventoryModule(self.api, self.agent_id)
+        self.inventory = InventoryModule(self.api, self.agent_id)  # ✅ agent_id já existe
         self.commands  = CommandsModule(self.api)
         self.shield    = ShieldModule(self.api, self.cfg.token, self.cfg.app_url)
         self.tray      = TrayApp(self)
@@ -129,7 +139,6 @@ class NVCloudAgent:
         signal.signal(signal.SIGTERM, lambda *_: self.stop())
         signal.signal(signal.SIGINT,  lambda *_: self.stop())
 
-        # Tray só quando há interface gráfica (não roda como serviço)
         if _tem_interface():
             try:
                 self.tray.iniciar()
@@ -142,7 +151,7 @@ class NVCloudAgent:
             threading.Thread(target=self._loop, args=(self.metrics,   300,   "metrics"),   daemon=True),
             threading.Thread(target=self._loop, args=(self.inventory, 86400, "inventory"), daemon=True),
             threading.Thread(target=self._loop, args=(self.commands,  30,    "commands"),  daemon=True),
-            threading.Thread(target=self._loop, args=(self.shield,    10,  "shield"),    daemon=True),
+            threading.Thread(target=self._loop, args=(self.shield,    10,    "shield"),    daemon=True),
         ]
         for t in threads:
             t.start()
@@ -173,7 +182,6 @@ if __name__ == "__main__":
         _desinstalar_servico()
 
     elif "--tray" in sys.argv:
-        # Modo só ícone na bandeja — iniciado pelo startup do Windows após login
         cfg = Config()
 
         class FakeAgent:
