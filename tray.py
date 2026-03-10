@@ -7,7 +7,6 @@ Este arquivo conecta o agent ao nvcloud_tray.py
 """
 import threading
 import logging
-import platform
 
 log = logging.getLogger("tray")
 
@@ -69,9 +68,9 @@ class TrayApp:
         t.start()
         log.info(f"Shield loop iniciado para agent_id={agent_id or '(resolver via JWT)'}")
 
-        # Cria e exibe ícone na bandeja
+        # Cria e exibe ícone na bandeja — CORRIGIDO: passa api e agent_id
         imagem = criar_icone()
-        menu   = build_menu(app_url, stop_event, icon_ref)
+        menu   = build_menu(api, app_url, agent_id, stop_event, icon_ref)
         icon   = pystray.Icon("NVCloud", imagem, "NVCloud Agent", menu)
         icon_ref.append(icon)
 
