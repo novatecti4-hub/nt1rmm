@@ -12,6 +12,7 @@ class HeartbeatModule:
 
     def run(self):
         payload = {
+            "agent_id":       agent_id,
             "hostname":       socket.gethostname(),
             "ip_local":       self._ip(),
             "os_tipo":        platform.system(),         # "Windows" ou "Linux"
